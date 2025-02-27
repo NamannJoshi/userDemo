@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 )
@@ -17,6 +19,15 @@ func WriteJSON(w http.ResponseWriter, status int, v any) error {
 type apiFunc func(w http.ResponseWriter, r *http.Request) error 
 type ApiError struct {
 	Error string
+}
+
+func getID(r *http.Request) (int, error) {
+	vars := mux.Vars(r)["id"]
+	id, err := strconv.Atoi(vars)
+	if err != nil {
+		return -1, err
+	}
+	return id, nil
 }
 
 func makeHTTPhandler(f apiFunc) http.HandlerFunc {
@@ -70,31 +81,69 @@ func (s *ApiServer)handleIDMethods(w http.ResponseWriter, r *http.Request) error
 }
 
 func (s *ApiServer)handleGetAccountByID(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	fmt.Println("get by id endpoint working!")
+	id, err := getID(r)
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Error: "invalid request"})
+	}
+	
+	account, err := s.store.GetAccountByIDDB(id)
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Error: err.Error()})
+	}
+	return WriteJSON(w, http.StatusOK, account)
 }
 
 func (s *ApiServer)handleGetAllAccounts(w http.ResponseWriter, r *http.Request) error {
-	account := NewAccount("Giggity", "Ka choda", "abs@gmail.com")
-	account1 := NewAccount("Giggity", "Ka choda", "abs@gmail.com")
-
-	accounts := []*Account{account, account1}
-
-	type AccountResponse struct {
-		ID int `json:"id"`
-		Data []*Account `json:"data"`
+	accounts, err := s.store.GetAllAccountsDB()
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Error:"invalid request"})
 	}
 
-	return WriteJSON(w, http.StatusOK, AccountResponse{ID: 69, Data: accounts})
+	return WriteJSON(w, http.StatusOK, accounts)
 }
 
-func (s *ApiServer)handleCreateAccount(w http.ResponseWriter, r *http.Request) error {
-	return nil
+func (s *ApiServer)handleCreateAccount(w http.ResponseWriter, r *http.Request) (error) {
+	fmt.Println("Create api endpoint is working")
+	var req CreateAccountReq
+	json.NewDecoder(r.Body).Decode(&req)
+
+	account := NewAccount(req.FirstName, req.LastName, req.Email)
+	if err := s.store.CreateAccountDB(account); err != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Error: "invalid request"}) 
+	}
+
+	return WriteJSON(w, http.StatusOK, &UserSendRes{account.ID, account.FirstName, account.LastName})
 }
 
 func (s *ApiServer)handleDeleteAccount(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	id, err := getID(r)
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Error: err.Error()})
+	}
+
+	errar := s.store.DeleteAccountDB(id)
+	if errar != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Error: errar.Error()})
+	}
+	return WriteJSON(w, http.StatusOK, map[string]string{"message":"account deleted successfully"})
 }
 
 func (s *ApiServer)handleUpdateAccount(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	id, err := getID(r)
+	if err != nil {
+		return fmt.Errorf("error while fetching id: %d", id)
+	}
+	var req *UserUpdateReq
+	json.NewDecoder(r.Body).Decode(&req)
+
+	fmt.Println(req)
+
+	errar := s.store.UpdateAccountDB(req, id); 
+	if errar != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Error: errar.Error()})
+	}
+
+	fmt.Println(req)
+	return WriteJSON(w, http.StatusOK, map[string]string{"message": "account updated successfully"})
 }

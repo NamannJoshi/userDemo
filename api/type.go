@@ -12,6 +12,25 @@ func checkPasswordHash(password, hash string) bool {
 	return err == nil
 }
 
+type CreateAccountReq struct {
+	FirstName string `json:"firstName"`
+	LastName string `json:"lastName"`
+	Email string `json:"email"`
+}
+
+type UserSendRes struct {
+	ID int `json:"id"`
+	FirstName string `json:"firstName"`
+	LastName string `json:"lastName"`
+}
+
+type UserUpdateReq struct {
+	FirstName string `json:"firstName"`
+	LastName string `json:"lastName"`
+	Email string `json:"email"`
+	PasswordHash string `json:"passwordHash"`
+}
+
 type Account struct {
 	ID              int      `json:"id"`
 	FirstName       string   `json:"firstName"`
