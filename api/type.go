@@ -1,21 +1,14 @@
 package api
 
-import "golang.org/x/crypto/bcrypt"
-
-func hashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(bytes), err
-}
-
-func checkPasswordHash(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
-}
+import (
+	"time"
+)
 
 type CreateAccountReq struct {
 	FirstName string `json:"firstName"`
 	LastName string `json:"lastName"`
 	Email string `json:"email"`
+	PasswordHash string `json:"passwordHash"`
 }
 
 type UserSendRes struct {
@@ -28,6 +21,7 @@ type UserUpdateReq struct {
 	FirstName string `json:"firstName"`
 	LastName string `json:"lastName"`
 	Email string `json:"email"`
+	IsAdmin *bool `json:"isAdmin"`
 	PasswordHash string `json:"passwordHash"`
 }
 
@@ -38,13 +32,28 @@ type Account struct {
 	Email           string   `json:"email"`
 	Number          int   `json:"number"`
 	PasswordHash    string   `json:"passwordHash"`
+	IsAdmin					bool 			`json:"isAdmin"`
+	CreatedAt				time.Time `json:"createdAt"`
+	UpdatedAt				time.Time `json:"updatedAt"`
 }
 
-func NewAccount(firstName, lastName, email string) *Account {
+type LoginUserReq struct {
+	Email string `json:"email"`
+	Password string `json:"password"`
+}
+
+type LoginUserRes struct {
+	AccessToken string `json:"access_token"`
+	User UserSendRes `json:"user"`
+}
+
+func NewAccount(firstName, lastName, email, password string) *Account {
 	return &Account{
 		FirstName: firstName,
 		LastName: lastName,
 		Email: email,
+		PasswordHash: password,
+		CreatedAt: time.Now().UTC(),
 	}
 }
 

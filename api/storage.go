@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -13,6 +14,7 @@ type Storage interface {
 	CreateAccountDB(*Account) (error) 
 	GetAllAccountsDB() ([]*Account, error)
 	GetAccountByIDDB(int) (*Account, error)
+	GetAccountByEmailDB(string) (*Account, error)
 	DeleteAccountDB(int) (error)
 	UpdateAccountDB(*UserUpdateReq, int) error
 }
@@ -35,6 +37,15 @@ func (s *PostgreStore)Init() error {
 	return s.CreateAccountTable()
 }
 
+func (s *PostgreStore)Drop() error {
+	query := `drop table users;`
+	_, err := s.conn.Exec(context.Background(), query)
+	if err != nil {
+		return fmt.Errorf("table deletion can't be handled")
+	}
+	return nil
+}
+
 func (s *PostgreStore)CreateAccountTable() error {
 	query := `
 		create table if not exists users (
@@ -43,7 +54,10 @@ func (s *PostgreStore)CreateAccountTable() error {
 			lastName varchar(100) not null,
 			email varchar(200) not null,
 			number int not null,
-			password varchar(200) not null
+			passwordHash varchar(200) not null,
+			isAdmin boolean not null,
+			createdAt timestamp not null,
+			updatedAt timestamp not null
 		)
 	`
 	_, err := s.conn.Exec(context.Background(), query)
@@ -52,8 +66,8 @@ func (s *PostgreStore)CreateAccountTable() error {
 
 func (s *PostgreStore)CreateAccountDB(account *Account) (error) {
 	query := `
-		insert into users (firstName, lastName, email, number, password) values (
-			@firstName, @lastName, @email, @number, @password
+		insert into users (firstName, lastName, email, number, passwordHash, createdAt, updatedAt, isAdmin) values (
+			@firstName, @lastName, @email, @number, @passwordHash, @createdAt, @updatedAt, @isAdmin
 		)
 	`
 	args := pgx.NamedArgs{
@@ -61,7 +75,10 @@ func (s *PostgreStore)CreateAccountDB(account *Account) (error) {
 		"lastName": account.LastName,
 		"email": account.Email,
 		"number": account.Number,
-		"password": account.PasswordHash,
+		"passwordHash": account.PasswordHash,
+		"createdAt": account.CreatedAt,
+		"updatedAt": account.CreatedAt,
+		"isAdmin": account.IsAdmin,
 	}
 	_, err := s.conn.Exec(context.Background(), query, args)
 	return err
@@ -79,7 +96,7 @@ func (s *PostgreStore)GetAllAccountsDB() ([]*Account, error) {
 	var users []*Account
 	for rows.Next() {
 			var user Account
-			err := rows.Scan(&user.ID, &user.FirstName, &user.LastName, &user.Email, &user.Number, &user.PasswordHash)
+			err := rows.Scan(&user.ID, &user.FirstName, &user.LastName, &user.Email, &user.Number, &user.PasswordHash, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 
 			if err != nil {
 			return nil, fmt.Errorf("error occured while Scanning accounts from DB: %v", err)
@@ -100,10 +117,30 @@ func(s *PostgreStore) GetAccountByIDDB(accountId int) (*Account, error) {
 	row := s.conn.QueryRow(context.Background(), query, args)
 
 	var res Account 
-	err := row.Scan(&res.ID, &res.FirstName, &res.LastName, &res.Email, &res.Number, &res.PasswordHash)
+	err := row.Scan(&res.ID, &res.FirstName, &res.LastName, &res.Email, &res.Number, &res.PasswordHash, &res.IsAdmin, &res.CreatedAt, &res.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("row not found")
+			return nil, fmt.Errorf("account not found")
+		}
+		return nil, err
+	}
+	
+	return &res, nil
+}
+func(s *PostgreStore) GetAccountByEmailDB(accountId string) (*Account, error) {
+	query := `
+		select * from users where email = @accountId;
+	`
+	args := pgx.NamedArgs{
+		"accountId": (accountId),
+	}
+	row := s.conn.QueryRow(context.Background(), query, args)
+
+	var res Account 
+	err := row.Scan(&res.ID, &res.FirstName, &res.LastName, &res.Email, &res.Number, &res.PasswordHash, &res.IsAdmin, &res.CreatedAt, &res.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("account not found")
 		}
 		return nil, err
 	}
@@ -128,7 +165,7 @@ func (s *PostgreStore)DeleteAccountDB(accountID int) (error) {
 func (s *PostgreStore)UpdateAccountDB(account *UserUpdateReq, accountID int) (error) {
 
 	//change updates data type of map's value and its if statement and data type in "for" loop's sprintf
-	updates := make(map[string]string)
+	updates := make(map[string]any)
 	if account.FirstName != "" {
 		updates["firstName"] = account.FirstName
 	}
@@ -139,8 +176,16 @@ func (s *PostgreStore)UpdateAccountDB(account *UserUpdateReq, accountID int) (er
 		updates["email"] = account.Email
 	}
 	if account.PasswordHash != "" {
-		updates["passwordHash"] = account.PasswordHash
+		hashed, err := HashPassword(account.PasswordHash)
+		if err != nil {
+			panic(err)
+		}
+		updates["passwordHash"] = hashed
 	}
+	if account.IsAdmin != nil {
+		updates["isAdmin"] = *account.IsAdmin
+	}
+	updates["updatedAt"] = time.Now().UTC().Format(time.ANSIC)
 
 	if len(updates) == 0 {
 		return nil
@@ -155,9 +200,6 @@ func (s *PostgreStore)UpdateAccountDB(account *UserUpdateReq, accountID int) (er
 	}
 	args["accountID"] = accountID
 	query := fmt.Sprintf("update users set %s where id = @accountID", strings.Join(setClause, ", "))
-
-	fmt.Println(query)
-	fmt.Println(args)
 	
 	_, err := s.conn.Exec(context.Background(), query, args)
 	if err != nil {

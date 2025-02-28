@@ -84,12 +84,12 @@ func (s *ApiServer)handleGetAccountByID(w http.ResponseWriter, r *http.Request) 
 	fmt.Println("get by id endpoint working!")
 	id, err := getID(r)
 	if err != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Error: "invalid request"})
+		return BadRequest(w, fmt.Errorf("invalid request"))
 	}
 	
 	account, err := s.store.GetAccountByIDDB(id)
 	if err != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Error: err.Error()})
+		return BadRequest(w, err)
 	}
 	return WriteJSON(w, http.StatusOK, account)
 }
@@ -105,12 +105,22 @@ func (s *ApiServer)handleGetAllAccounts(w http.ResponseWriter, r *http.Request) 
 
 func (s *ApiServer)handleCreateAccount(w http.ResponseWriter, r *http.Request) (error) {
 	fmt.Println("Create api endpoint is working")
-	var req CreateAccountReq
-	json.NewDecoder(r.Body).Decode(&req)
 
-	account := NewAccount(req.FirstName, req.LastName, req.Email)
+	var req CreateAccountReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return BadRequest(w, err)
+	}
+
+	hashed, err := HashPassword(req.PasswordHash)
+	if err != nil {
+		return BadRequest(w, err)
+	}
+	req.PasswordHash = hashed
+	
+	account := NewAccount(req.FirstName, req.LastName, req.Email, req.PasswordHash)
+	fmt.Println(account)
 	if err := s.store.CreateAccountDB(account); err != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Error: "invalid request"}) 
+		return BadRequest(w, fmt.Errorf("bad request"))
 	}
 
 	return WriteJSON(w, http.StatusOK, &UserSendRes{account.ID, account.FirstName, account.LastName})
@@ -146,4 +156,25 @@ func (s *ApiServer)handleUpdateAccount(w http.ResponseWriter, r *http.Request) e
 
 	fmt.Println(req)
 	return WriteJSON(w, http.StatusOK, map[string]string{"message": "account updated successfully"})
+}
+
+// ongoing
+func (s *ApiServer) loginUser(w http.ResponseWriter, r *http.Request) error {
+	var u LoginUserReq
+	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+		return BadRequest(w, err)
+	}
+
+	gu, err := s.store.GetAccountByEmailDB(u.Email)
+	if err != nil {
+		return InternalServerError(w, err)
+	}
+
+	if err := CheckPasswordHash(u.Password, gu.PasswordHash); err != nil {
+		return Unauthorized(w, err)
+	}
+
+	// create a json web token and return as response
+
+	return nil
 }
