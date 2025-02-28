@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
+	"userDemo/token"
 
 	"github.com/gorilla/mux"
 )
@@ -41,19 +43,26 @@ func makeHTTPhandler(f apiFunc) http.HandlerFunc {
 type ApiServer struct {
 	listenAddr string
 	store Storage
+	tokenMaker *token.JWTMaker
 }
-func NewServerApi(listenAddr string, store Storage) *ApiServer {
+func NewServerApi(listenAddr string, store Storage, secretKey string) *ApiServer {
 	return &ApiServer{
 		listenAddr: listenAddr,
 		store: store,
+		tokenMaker: token.NewJWTMaker(secretKey),
 	}
 }
 
 func (s *ApiServer)Run() {
 	router := mux.NewRouter()
 
+	//rest routes
 	router.HandleFunc("/account", makeHTTPhandler(s.handleDirectMethods))
 	router.HandleFunc("/account/{id}", makeHTTPhandler(s.handleIDMethods))
+
+	//auth
+	router.HandleFunc("/account/login", makeHTTPhandler(s.handleLoginUser))
+
 	http.ListenAndServe(s.listenAddr, router)
 }
 
@@ -123,7 +132,7 @@ func (s *ApiServer)handleCreateAccount(w http.ResponseWriter, r *http.Request) (
 		return BadRequest(w, fmt.Errorf("bad request"))
 	}
 
-	return WriteJSON(w, http.StatusOK, &UserSendRes{account.ID, account.FirstName, account.LastName})
+	return WriteJSON(w, http.StatusOK, &UserSendRes{account.ID, account.FirstName, account.LastName, account.IsAdmin})
 }
 
 func (s *ApiServer)handleDeleteAccount(w http.ResponseWriter, r *http.Request) error {
@@ -159,7 +168,7 @@ func (s *ApiServer)handleUpdateAccount(w http.ResponseWriter, r *http.Request) e
 }
 
 // ongoing
-func (s *ApiServer) loginUser(w http.ResponseWriter, r *http.Request) error {
+func (s *ApiServer) handleLoginUser(w http.ResponseWriter, r *http.Request) error {
 	var u LoginUserReq
 	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
 		return BadRequest(w, err)
@@ -175,6 +184,20 @@ func (s *ApiServer) loginUser(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// create a json web token and return as response
+	accessToken, _, err := s.tokenMaker.CreateToken(gu.ID, gu.Email, gu.IsAdmin, 15 *time.Minute)
+	if err != nil {
+		return InternalServerError(w, err)
+	}
 
-	return nil
+	res := LoginUserRes {
+		AccessToken: accessToken,
+		User: UserSendRes{
+			ID: gu.ID,
+			FirstName: gu.FirstName,
+			LastName: gu.LastName,
+			IsAdmin: gu.IsAdmin,
+		},
+	}
+
+	return StatusOK(w, res)
 }

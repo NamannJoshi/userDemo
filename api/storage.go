@@ -37,11 +37,39 @@ func (s *PostgreStore)Init() error {
 	return s.CreateAccountTable()
 }
 
-func (s *PostgreStore)Drop() error {
+func (s *PostgreStore)DropTable() error {
 	query := `drop table users;`
 	_, err := s.conn.Exec(context.Background(), query)
 	if err != nil {
 		return fmt.Errorf("table deletion can't be handled")
+	}
+	return nil
+}
+
+func (s * PostgreStore) CreateSessions() error {
+	query := `
+		create table sessions (
+			id varchar(255) primary key not null,
+			email varchar(255) not null,
+			refreshToken varchar(512) not null,
+			isRevoked bool not null default false,
+			createdAt datetime default (not()),
+			expiresAt datetime
+		);
+	`
+	_, err := s.conn.Exec(context.Background(), query)
+	if err != nil {
+		return fmt.Errorf("error creating sessions table")
+	}
+	return nil
+}
+func (s *PostgreStore)DropSessionTable() error {
+	query := `
+		drop table sessions;
+	`
+	_, err := s.conn.Exec(context.Background(), query)
+	if err != nil {
+		return fmt.Errorf("session table couldn't get deleted")
 	}
 	return nil
 }
@@ -52,12 +80,12 @@ func (s *PostgreStore)CreateAccountTable() error {
 			id serial primary key,
 			firstName varchar(100) not null,
 			lastName varchar(100) not null,
-			email varchar(200) not null,
+			email varchar(200) not null unique,
 			number int not null,
 			passwordHash varchar(200) not null,
 			isAdmin boolean not null,
-			createdAt timestamp not null,
-			updatedAt timestamp not null
+			createdAt datetime not null,
+			updatedAt datetime not null
 		)
 	`
 	_, err := s.conn.Exec(context.Background(), query)
